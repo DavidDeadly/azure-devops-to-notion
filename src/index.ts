@@ -1,30 +1,24 @@
-import dotenv from "dotenv";
-
-import { getEnv } from "./env/getEnv";
-import { getAzureWebApi } from "./apis/azure";
-import { getNotionWebApi } from "./apis/notion";
 import { from, map, mergeMap } from "rxjs";
-import { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 
-dotenv.config();
+import { getAzureWebApi } from "./apis/azure";
+import { PageItem } from "./models/Page";
+import { Notion } from "./services/notion";
 
-interface PageItem {
-  id: number,
-  title: string,
-  description: string,
-  acceptanceCriteria: string,
-  type: string,
-  storyPoints: number,
-  state: string,
-  url: string
-}
 
 // * Getting apis
 const webApi = await getAzureWebApi();
-const notionApi = await getNotionWebApi();
+const notion = await Notion.build();
 const workItemTrackingApi = await webApi.getWorkItemTrackingApi();
 
-// * Get user work items 
+// * Get user work items
+
+const { workItemDetails } = await workItemTrackingApi.getAccountMyWorkData()
+const workItem = workItemDetails!.at(0)!;
+
+console.log(workItem);
+
+const xd = await workItemTrackingApi.getWorkItem(workItem.id!)
+console.log(xd);
 
 from(workItemTrackingApi.getAccountMyWorkData())
 .pipe(
@@ -33,7 +27,15 @@ from(workItemTrackingApi.getAccountMyWorkData())
     ?.map(itemDetail =>  itemDetail.id) as Array<number>
   }),
 
-  mergeMap(itemsIds => from(itemsIds)),
+  mergeMap(itemsIds => notion.filterAlreadyExistings(itemsIds)),
+
+  mergeMap(newIds => {
+    if(newIds.length === 0) {
+      console.log("All your workItems are already in notion!")
+    }
+    
+    return from(newIds)
+  }),
 
   mergeMap(itemId => {
     console.log(`Processing item #${itemId}...`)
@@ -61,7 +63,7 @@ from(workItemTrackingApi.getAccountMyWorkData())
 
   mergeMap(workItem => {
     console.log(`Creating page in base of workTTem #${workItem.id}...`)
-    return createWorkItemPage(workItem)
+    return notion.createWorkItemPage(workItem)
   })
 )
 .subscribe({
@@ -70,65 +72,4 @@ from(workItemTrackingApi.getAccountMyWorkData())
   },
   error: err => console.error("Error getting your work data: ", err.message)
 })
-
-function createWorkItemPage ({ id, title, state, description, acceptanceCriteria, type, storyPoints, url }: PageItem): Promise<PageObjectResponse> {
-  return notionApi.pages.create({
-    parent: {
-      database_id: getEnv("TASKS_DATABASE_ID")
-    },
-    properties: {
-      "ID": {
-        number: id ?? 0
-      },
-      "Name": {
-        title: [
-          {
-            text: {
-              content: title ?? ""
-            }
-          }
-        ]
-      },
-      "Status": {
-        select: {
-          name: state ?? "New"
-        }
-      },
-      "URL": {
-        url: url ?? ""
-      },
-      "Story points": {
-        number: storyPoints ?? 0
-      },
-      "Description": {
-        rich_text: [
-          {
-            text: {
-              content: description ?? ""
-            }
-          }
-        ]
-      },
-      "Acceptance Criteria": {
-        rich_text: [
-          {
-            text: {
-              content: acceptanceCriteria ?? ""
-            }
-          }
-        ]
-      },
-      "Type": {
-        select: {
-          name: type
-        }
-      },
-    }
-  }) as Promise<PageObjectResponse>
-}
-
-
-
-
-
 
