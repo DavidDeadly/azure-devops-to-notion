@@ -76,13 +76,21 @@ export class Notion {
     }) as Promise<PageObjectResponse>
   }
 
-  public async filterAlreadyExistings(pageIds: Array<number>) {
+  public async getExistingAndNews(pageIds: Array<number>): Promise<Array<number[]>> {
     const database = await this.getTasksDatabase();
     const databasePagesIds = database?.results
-    // @ts-ignore:next-line
+    // @ts-ignore:next-line 
     .map(result => result.properties.ID.number);
     
-    return pageIds.filter(pageId => !databasePagesIds.includes(pageId));
+    return pageIds.reduce(([existing, news], id) => {
+      if(databasePagesIds.includes(id)) {
+        existing.push(id);
+      } else {
+        news.push(id);
+      }
+
+      return [existing, news];
+    }, [[], []] as Array<number[]>)
   }
 
   public getTasksDatabase() {

@@ -1,33 +1,22 @@
-import { from, map, mergeMap } from "rxjs";
+import { from, mergeMap } from "rxjs";
 
-import { getAzureWebApi } from "./apis/azure";
-import { PageItem } from "./models/Page";
+import { Azure } from "./services/azure";
 import { Notion } from "./services/notion";
 
 
 // * Getting apis
-const webApi = await getAzureWebApi();
 const notion = await Notion.build();
-const workItemTrackingApi = await webApi.getWorkItemTrackingApi();
-
+const azure = await Azure.build();
 // * Get user work items
 
-const { workItemDetails } = await workItemTrackingApi.getAccountMyWorkData()
-const workItem = workItemDetails!.at(0)!;
-
-console.log(workItem);
-
-const xd = await workItemTrackingApi.getWorkItem(workItem.id!)
-console.log(xd);
-
-from(workItemTrackingApi.getAccountMyWorkData())
+azure.getAccountWorkData()
 .pipe(
-  map(({ workItemDetails }) => {
-    return workItemDetails
-    ?.map(itemDetail =>  itemDetail.id) as Array<number>
+  mergeMap(async (itemsIds) => {
+    const [existings, news] = await notion.getExistingAndNews(itemsIds);
+    console.log({ existings, news });
+    
+    return news;
   }),
-
-  mergeMap(itemsIds => notion.filterAlreadyExistings(itemsIds)),
 
   mergeMap(newIds => {
     if(newIds.length === 0) {
@@ -39,27 +28,8 @@ from(workItemTrackingApi.getAccountMyWorkData())
 
   mergeMap(itemId => {
     console.log(`Processing item #${itemId}...`)
-
-    return workItemTrackingApi.getWorkItem(itemId, [
-      'System.Description',
-      'Microsoft.VSTS.Common.AcceptanceCriteria',
-      'System.Title',
-      'System.State',
-      'System.WorkItemType',
-      'Microsoft.VSTS.Scheduling.StoryPoints'
-    ])
+    return azure.getPageItemId(itemId);
   }),
-
-  map(({ id, fields, _links }): PageItem => ({
-    id: id!,
-    title: fields?.['System.Title'],
-    description: fields?.['System.Description'],
-    acceptanceCriteria: fields?.['Microsoft.VSTS.Common.AcceptanceCriteria'],
-    type: fields?.['System.WorkItemType'],
-    storyPoints: fields?.['Microsoft.VSTS.Scheduling.StoryPoints'],
-    state: fields?.['System.State'],
-    url: _links?.html.href
-  })),
 
   mergeMap(workItem => {
     console.log(`Creating page in base of workTTem #${workItem.id}...`)
@@ -72,4 +42,3 @@ from(workItemTrackingApi.getAccountMyWorkData())
   },
   error: err => console.error("Error getting your work data: ", err.message)
 })
-
