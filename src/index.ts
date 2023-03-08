@@ -1,44 +1,37 @@
-import { from, mergeMap } from "rxjs";
+import { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
+import { BehaviorSubject, from, map, mergeMap, Subject } from "rxjs";
 
 import { Azure } from "./services/azure";
 import { Notion } from "./services/notion";
+import { $existingPages, subscribeExistingPages } from "./subjects/existingPages";
+import { $newPages, subscribeNewPages } from "./subjects/newPages";
 
 
 // * Getting apis
 const notion = await Notion.build();
 const azure = await Azure.build();
+
+// Subscritions
+subscribeNewPages(notion, azure);
+subscribeExistingPages();
+
 // * Get user work items
-
 azure.getAccountWorkData()
-.pipe(
-  mergeMap(async (itemsIds) => {
-    const [existings, news] = await notion.getExistingAndNews(itemsIds);
-    console.log({ existings, news });
-    
-    return news;
-  }),
+  .pipe(
+    mergeMap(async (itemsIds) => {
+      const [existings, news] = await notion.getExistingAndNews(itemsIds);
 
-  mergeMap(newIds => {
-    if(newIds.length === 0) {
-      console.log("All your workItems are already in notion!")
-    }
-    
-    return from(newIds)
-  }),
+      return { existings, news };
+    })
+  )
+  .subscribe({
+    next: ({ existings, news }) => {
+      console.log({ existings, news });
+      
+      from(existings).subscribe($existingPages);
 
-  mergeMap(itemId => {
-    console.log(`Processing item #${itemId}...`)
-    return azure.getPageItemId(itemId);
-  }),
+      from(news).subscribe($newPages);
 
-  mergeMap(workItem => {
-    console.log(`Creating page in base of workTTem #${workItem.id}...`)
-    return notion.createWorkItemPage(workItem)
+    },
+    error: err => console.error("Error getting your work data: ", err.message)
   })
-)
-.subscribe({
-  next: page => {
-    console.log("Visited here: ", page.url);
-  },
-  error: err => console.error("Error getting your work data: ", err.message)
-})
